@@ -1,0 +1,6 @@
+{
+  "name": "mohdsheeraz/walletfinder",
+  "require": {
+    "php": ">=7.4"
+  }
+}
