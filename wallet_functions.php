@@ -1,85 +1,78 @@
 <?php
 // wallet_functions.php
 
-// Load WordPress if you need gating; otherwise remove these two lines:
-// require_once( $_SERVER['DOCUMENT_ROOT'] . '/wp-load.php' );
-// if ( ! is_user_logged_in() ) exit;
+// 1) Open (or create) the SQLite database in the same directory
+$dbPath = __DIR__ . '/wallets.db';
+$db     = new SQLite3($dbPath);
 
-// Load credentials from environment (Railway injects these)
-$dbHost = getenv('DB_HOST'); // e.g. 'mysql.hostinger.com'
-$dbUser = getenv('DB_USER');
-$dbPass = getenv('DB_PASS');
-$dbName = getenv('DB_NAME');
-$dbPort = getenv('DB_PORT') ?: 3306;
+// 2) Ensure the table exists
+$db->exec('
+  CREATE TABLE IF NOT EXISTS wallet_scans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    private_key TEXT NOT NULL,
+    btc_address TEXT NOT NULL,
+    balance REAL NOT NULL,
+    scanned_at TEXT NOT NULL
+  )
+');
 
-$conn = new mysqli($dbHost, $dbUser, $dbPass, $dbName, (int)$dbPort);
-if ($conn->connect_error) {
-    die("DB Connection failed ({$conn->connect_errno}): {$conn->connect_error}");
-}
-
-// Elliptic‑curve and Base58Check functions (copied from index.php)
-function pointAdd($P, $Q, $p) { /* … your existing code … */ }
-function pointDouble($P, $p) { /* … */ }
-function scalarMultiply($kHex, $P, $p) { /* … */ }
-function base58Check($hex) { /* … */ }
-
-/**
- * scanAndLogWallet
- * Generates one wallet, checks balance, logs if >0.
- */
+// 3) Your scan function
 function scanAndLogWallet(): array {
-    global $conn;
+    global $db;
 
-    // 1) Private key
+    // Generate a random 32‑byte private key (hex)
     $privHex = bin2hex(random_bytes(32));
 
-    // 2) ECC params
+    // ECC parameters and helpers (same as your existing code)...
     $p  = gmp_init('FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F',16);
     $Gx = gmp_init('79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798',16);
     $Gy = gmp_init('483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8',16);
 
-    // 3) Derive compressed pubkey
+    function pointAdd($P, $Q, $p) { /* ... copy your code ... */ }
+    function pointDouble($P, $p) { /* ... */ }
+    function scalarMultiply($kHex, $P, $p) { /* ... */ }
+    function base58Check($hex)   { /* ... */ }
+
+    // Derive compressed public key and address
     $P = scalarMultiply($privHex, ['x'=>$Gx,'y'=>$Gy], $p);
     if (!$P) {
-        return ['error' => 'EC error'];
+      return ['error'=>'EC error'];
     }
     $xHex   = str_pad(gmp_strval($P['x'],16),64,'0',STR_PAD_LEFT);
-    $prefix = (gmp_mod($P['y'],2)==0)?'02':'03';
-    $pubHex = $prefix.$xHex;
-
-    // 4) Compute address
+    $prefix = (gmp_mod($P['y'],2)==0) ? '02' : '03';
+    $pubHex = $prefix . $xHex;
     $rip    = hash('ripemd160', hash('sha256', hex2bin($pubHex), true), true);
-    $payload= '00'.bin2hex($rip);
+    $payload= '00' . bin2hex($rip);
     $address= base58Check($payload);
 
-    // 5) Fetch balance
+    // Fetch balance
     $balJson = @file_get_contents("https://blockchain.info/balance?active={$address}");
     if ($balJson === FALSE) {
-        return ['error' => 'rate limited'];
+      return ['error'=>'rate limited'];
     }
     $jd  = json_decode($balJson, true);
-    $bal = isset($jd[$address]['final_balance']) ? $jd[$address]['final_balance']/1e8 : 0.0;
+    $bal = isset($jd[$address]['final_balance'])
+           ? $jd[$address]['final_balance']/1e8
+           : 0.0;
 
-    // 6) Log if positive
+    // If positive, log into SQLite
     if ($bal > 0) {
-        $stmt = $conn->prepare(
-            "INSERT INTO wallet_scans (private_key, btc_address, balance) VALUES (?, ?, ?)"
-        );
-        $stmt->bind_param("ssd", $privHex, $address, $bal);
-        $stmt->execute();
-        $stmt->close();
-
-        $stmt = $conn->prepare(
-            "INSERT INTO btc_wallets (private_key, btc_address, balance) VALUES (?, ?, ?)"
-        );
-        $stmt->bind_param("ssd", $privHex, $address, $bal);
-        $stmt->execute();
-        $stmt->close();
+      $stmt = $db->prepare('
+        INSERT INTO wallet_scans 
+          (private_key, btc_address, balance, scanned_at)
+        VALUES 
+          (:priv, :addr, :bal, :ts)
+      ');
+      $stmt->bindValue(':priv', $privHex, SQLITE3_TEXT);
+      $stmt->bindValue(':addr', $address, SQLITE3_TEXT);
+      $stmt->bindValue(':bal' , $bal,     SQLITE3_FLOAT);
+      $stmt->bindValue(':ts'  , date('c'), SQLITE3_TEXT);
+      $stmt->execute();
     }
 
     return [
-        'private_key' => $privHex,
-        'btc_address' => $address,
-        'balance'     => $bal,
+      'private_key'=> $privHex,
+      'btc_address'=> $address,
+      'balance'    => $bal,
     ];
 }
