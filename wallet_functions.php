@@ -5,16 +5,23 @@
 // require_once( $_SERVER['DOCUMENT_ROOT'] . '/wp-load.php' );
 // if ( ! is_user_logged_in() ) exit;
 
-// Database connection using ENV vars (falls back to defaults if not set)
-$dbHost = getenv('DB_HOST') ?: 'sql123.main-hosting.eu';
-$dbUser = getenv('DB_USER') ?: 'u798312862_z6Ohw';
-$dbPass = getenv('DB_PASS') ?: 'Sheeraz786';
-$dbName = getenv('DB_NAME') ?: 'u798312862_dRH1L';
-$dbPort = getenv('DB_PORT') ?: 3306;
+// Load credentials from environment (Railway injects these)
+$dbHost = getenv('DB_HOST');
+$dbUser = getenv('DB_USER');
+$dbPass = getenv('DB_PASS');
+$dbName = getenv('DB_NAME');
+$dbPort = getenv('DB_PORT');
 
-$conn = new mysqli($dbHost, $dbUser, $dbPass, $dbName, $dbPort);
+// Debug: log the resolved host (comment out in production)
+// error_log("DB_HOST resolved to: " . var_export($dbHost, true));
+
+if (!$dbHost || !$dbUser || !$dbName) {
+    die("Missing DB environment variables. DB_HOST={$dbHost}, DB_USER={$dbUser}, DB_NAME={$dbName}");
+}
+
+$conn = new mysqli($dbHost, $dbUser, $dbPass, $dbName, intval($dbPort));
 if ($conn->connect_error) {
-    die("DB Connection Error ({$conn->connect_errno}): " . $conn->connect_error);
+    die("DB Connection failed ({$conn->connect_errno}): " . $conn->connect_error);
 }
 
 // Elliptic‑curve and Base58Check functions (copied from index.php)
