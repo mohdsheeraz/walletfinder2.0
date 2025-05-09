@@ -6,22 +6,15 @@
 // if ( ! is_user_logged_in() ) exit;
 
 // Load credentials from environment (Railway injects these)
-$dbHost = getenv('DB_HOST');
+$dbHost = getenv('DB_HOST'); // e.g. 'mysql.hostinger.com'
 $dbUser = getenv('DB_USER');
 $dbPass = getenv('DB_PASS');
 $dbName = getenv('DB_NAME');
-$dbPort = getenv('DB_PORT');
+$dbPort = getenv('DB_PORT') ?: 3306;
 
-// Debug: log the resolved host (comment out in production)
-// error_log("DB_HOST resolved to: " . var_export($dbHost, true));
-
-if (!$dbHost || !$dbUser || !$dbName) {
-    die("Missing DB environment variables. DB_HOST={$dbHost}, DB_USER={$dbUser}, DB_NAME={$dbName}");
-}
-
-$conn = new mysqli($dbHost, $dbUser, $dbPass, $dbName, intval($dbPort));
+$conn = new mysqli($dbHost, $dbUser, $dbPass, $dbName, (int)$dbPort);
 if ($conn->connect_error) {
-    die("DB Connection failed ({$conn->connect_errno}): " . $conn->connect_error);
+    die("DB Connection failed ({$conn->connect_errno}): {$conn->connect_error}");
 }
 
 // Elliptic‑curve and Base58Check functions (copied from index.php)
